@@ -25,84 +25,114 @@ class ConsumerSourceSpec
 
   implicit val materializer = ActorMaterializer()
 
+  def withResource[T <: AutoCloseable, V](r: => T)(f: T => V): V = {
+    import scala.util.control.NonFatal
+
+    def close(e: Throwable, resource: T) {
+      if (e != null) {
+        try {
+          resource.close
+        } catch {
+          case NonFatal(suppressed) =>
+            e.addSuppressed(suppressed)
+        } 
+      } else {
+        resource.close
+      }
+    }
+
+    var exception: Throwable = null
+
+    val resource = r
+    try {
+      f(resource)
+    } catch {
+      case NonFatal(e) =>
+        exception = e
+        throw e
+    } finally {
+      close(exception, resource)
+    }
+  }
+
   "consumer source" must {
     "handle records one a time" in {
-      val consumer = new MockConsumer[String, String](OffsetResetStrategy.EARLIEST)
+      withResource(new MockConsumer[String, String](OffsetResetStrategy.EARLIEST)) { consumer =>
+        val sourceUnderTest = ConsumerSource(consumer, Seq(topic))
 
-      val sourceUnderTest = ConsumerSource(consumer, Seq(topic))
+        consumer.schedulePollTask(() => {
+          val record1 = TestConsumerRecord[String, String](topic, partition, 0, null, "ciccio")
+          val record2 = TestConsumerRecord[String, String](topic, partition, 1, null, "cunicio")
+          val tp = new TopicPartition(topic, 0)
 
-      consumer.schedulePollTask(() => {
-        val record1 = TestConsumerRecord[String, String](topic, partition, 0, null, "ciccio")
-        val record2 = TestConsumerRecord[String, String](topic, partition, 1, null, "cunicio")
-        val tp = new TopicPartition(topic, 0)
+          consumer.rebalance(Seq(tp).asJava)
+          consumer.updateBeginningOffsets(Map[TopicPartition, java.lang.Long](tp -> 0L).asJava)
+          consumer.addRecord(record1)
+          consumer.addRecord(record2)
+        })
 
-        consumer.rebalance(Seq(tp).asJava)
-        consumer.updateBeginningOffsets(Map[TopicPartition, java.lang.Long](tp -> 0L).asJava)
-        consumer.addRecord(record1)
-        consumer.addRecord(record2)
-      })
-
-      sourceUnderTest
-        .map(_.value)
-        .runWith(TestSink.probe[String])
-        .request(1)
-        .expectNext("ciccio")
-        .request(1)
-        .expectNext("cunicio")
+        sourceUnderTest
+          .map(_.value)
+          .runWith(TestSink.probe[String])
+          .request(1)
+          .expectNext("ciccio")
+          .request(1)
+          .expectNext("cunicio")
+      }
     }
 
     "handle records two a time" in {
-      val consumer = new MockConsumer[String, String](OffsetResetStrategy.EARLIEST)
+      withResource(new MockConsumer[String, String](OffsetResetStrategy.EARLIEST)) { consumer =>
+        val sourceUnderTest = ConsumerSource(consumer, Seq(topic))
 
-      val sourceUnderTest = ConsumerSource(consumer, Seq(topic))
+        consumer.schedulePollTask(() => {
+          val tp = new TopicPartition(topic, 0)
+          val record1 = TestConsumerRecord[String, String](topic, partition, 0, null, "ciccio")
+          val record2 = TestConsumerRecord[String, String](topic, partition, 1, null, "cunicio")
 
-      consumer.schedulePollTask(() => {
-        val tp = new TopicPartition(topic, 0)
-        val record1 = TestConsumerRecord[String, String](topic, partition, 0, null, "ciccio")
-        val record2 = TestConsumerRecord[String, String](topic, partition, 1, null, "cunicio")
+          consumer.rebalance(Seq(tp).asJava)
+          consumer.updateBeginningOffsets(Map[TopicPartition, java.lang.Long](tp -> 0L).asJava)
+          consumer.addRecord(record1)
+          consumer.addRecord(record2)
+        })
 
-        consumer.rebalance(Seq(tp).asJava)
-        consumer.updateBeginningOffsets(Map[TopicPartition, java.lang.Long](tp -> 0L).asJava)
-        consumer.addRecord(record1)
-        consumer.addRecord(record2)
-      })
-
-      sourceUnderTest
-        .map(_.value)
-        .runWith(TestSink.probe[String])
-        .request(2)
-        .expectNext("ciccio", "cunicio")
+        sourceUnderTest
+          .map(_.value)
+          .runWith(TestSink.probe[String])
+          .request(2)
+          .expectNext("ciccio", "cunicio")
+      }
     }
 
     "handle records multiple" in {
-      val consumer = new MockConsumer[String, String](OffsetResetStrategy.EARLIEST)
+      withResource(new MockConsumer[String, String](OffsetResetStrategy.EARLIEST)) { consumer =>
+        val sourceUnderTest = ConsumerSource(consumer, Seq(topic))
 
-      val sourceUnderTest = ConsumerSource(consumer, Seq(topic))
+        consumer.schedulePollTask(() => {
+          val tp = new TopicPartition(topic, 0)
+          val record = TestConsumerRecord[String, String](topic, partition, 0, null, "ciccio")
 
-      consumer.schedulePollTask(() => {
-        val tp = new TopicPartition(topic, 0)
-        val record = TestConsumerRecord[String, String](topic, partition, 0, null, "ciccio")
+          consumer.rebalance(Seq(tp).asJava)
+          consumer.updateBeginningOffsets(Map[TopicPartition, java.lang.Long](tp -> 0L).asJava)
+          consumer.addRecord(record)
+        })
 
-        consumer.rebalance(Seq(tp).asJava)
-        consumer.updateBeginningOffsets(Map[TopicPartition, java.lang.Long](tp -> 0L).asJava)
-        consumer.addRecord(record)
-      })
+        val t = sourceUnderTest
+          .map(_.value)
+          .runWith(TestSink.probe[String])
+          .request(1)
+          .expectNext("ciccio")
 
-      val t = sourceUnderTest
-        .map(_.value)
-        .runWith(TestSink.probe[String])
-        .request(1)
-        .expectNext("ciccio")
+        consumer.schedulePollTask(() => {
+          val record = TestConsumerRecord[String, String](topic, partition, 1, null, "cunicio")
 
-      consumer.schedulePollTask(() => {
-        val record = TestConsumerRecord[String, String](topic, partition, 1, null, "cunicio")
+          consumer.addRecord(record)
+        })
 
-        consumer.addRecord(record)
-      })
-
-      t
-        .request(1)
-        .expectNext("cunicio")
+        t
+          .request(1)
+          .expectNext("cunicio")
+      }
     }
   }
 
