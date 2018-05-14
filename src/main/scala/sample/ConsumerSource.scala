@@ -2,7 +2,6 @@ package sample
 
 import org.slf4j.LoggerFactory
 
-import scala.annotation.tailrec
 import scala.collection.JavaConverters._
 import scala.concurrent.duration._
 
@@ -27,74 +26,48 @@ class ConsumerSource[K, V](_consumer: => Consumer[K, V], topics: Seq[String], ti
 
     consumer.subscribe(topics.asJavaCollection)
 
-    @tailrec
-    def doPush(iterator: Iterator[ConsumerRecord[K, V]]): Unit = {
-      log.debug("doPush")
-
-      if (iterator.hasNext) {
-        val consumerRecord = iterator.next
-
-        val record = Record(consumerRecord)
-
-        log.debug("doPush {}", record)
-        push(out, record)
-
-        if (isAvailable(out))
-          doPush(iterator)
-        else
-          setHandler(out, nextHandler(iterator))
-      } else {
-        log.debug("doPush schedule")
-
-        if (isAvailable(out)) {
-          scheduleOnce(None, sleepTime)
-
-          setHandler(out, waitingHandler)
-        } else {
-          setHandler(out, initHandler)
-        }
-      }
-    }
-
     override protected def onTimer(timerKey: Any) {
       log.debug("onTimer {}", timerKey)
-
-      poll()
+      doPoll()
     }
 
-    def nextHandler(iterator: Iterator[ConsumerRecord[K, V]]) = new OutHandler {
+    private def nextHandler(iterator: Iterator[ConsumerRecord[K, V]]) = new OutHandler {
+      def doPush =
+        if (iterator.hasNext) {
+          val consumerRecord = iterator.next
+
+          val record = Record(consumerRecord)
+
+          log.debug("nextHandler push {}", record)
+          push(out, record)
+        } else {
+          log.debug("nextHandler schedule")
+          scheduleOnce(None, sleepTime)
+        }
+
+      doPush
+
       def onPull {
         log.debug("nextHandler onPull")
-
-        doPush(iterator)
+        doPush
       }
     }
 
-    val waitingHandler = new OutHandler {
-      def onPull {
-        log.debug("waitingHandle onPull")
-      }
-    }
-
-    def poll() = {
-      log.debug("poll")
-
+    private def doPoll() = {
+      log.debug("doPoll")
       val consumerRecords = consumer.poll(timeout.toMillis)
-      log.debug("initHandler onPull consumeRecords count {}", consumerRecords.count)
+      log.debug("doPoll consumerRecords count {}", consumerRecords.count)
 
       val iterator = consumerRecords.asScala.iterator
-      doPush(iterator)
+      setHandler(out, nextHandler(iterator))
     }
 
-    val initHandler = new OutHandler {
+    setHandler(out, new OutHandler {
       def onPull {
         log.debug("initHandler onPull")
-
-        poll()
+        doPoll()
       }
-    }
-
-    setHandler(out, initHandler)
+    })
   }
 }
 object ConsumerSource {
