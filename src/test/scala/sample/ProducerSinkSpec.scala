@@ -52,5 +52,21 @@ class ProducerSinkSpec extends AkkaStreamSpec {
         future.futureValue
       }
     }
+
+    "handle error" in within(10.seconds) {
+      withResource(new MockProducer[String, String](true, new StringSerializer(), new StringSerializer())) { producer =>
+        val sinkUnderTest = ProducerSink(producer)
+
+        val (source, future) = TestSource.probe[ProducerSink.Record[String, String]]
+          .toMat(sinkUnderTest)(Keep.both)
+          .run
+
+        val ex = new Exception("fail!")
+        
+        source.sendError(ex)
+
+        future.failed.futureValue must be(ex)
+      }
+    }
   }
 }
