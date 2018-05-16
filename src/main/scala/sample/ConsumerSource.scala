@@ -59,14 +59,14 @@ class ConsumerSource[K, V](
 
       private def nextHandler(iterator: Iterator[ConsumerRecord[K, V]]) =
         new OutHandler {
-          def doPush =
+          def doPush() =
             if (iterator.hasNext) {
               val _consumerRecord = iterator.next
 
               val record = new Record[K, V] {
                 val consumerRecord = _consumerRecord
 
-                def commitSync = getCommit(consumerRecord) foreach { x =>
+                def commitSync() = getCommit(consumerRecord) foreach { x =>
                   consumer.commitSync(Map(x.topic -> x.offset).asJava)
                 }
               }
@@ -123,7 +123,7 @@ object ConsumerSource {
     def key = consumerRecord.key
     def value = consumerRecord.value
 
-    def commitSync: Unit
+    def commitSync(): Unit
 
     override def toString = s"Record[$consumerRecord]"
   }

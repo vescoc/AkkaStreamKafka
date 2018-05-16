@@ -1,5 +1,7 @@
 package sample
 
+import java.util.concurrent.atomic.AtomicLong
+
 import scala.concurrent.{Future, Promise}
 
 import org.slf4j.LoggerFactory
@@ -25,38 +27,33 @@ class ProducerSink[K, V](_producer: => Producer[K, V])
     val promise = Promise[Done]()
     val producer = _producer
 
-    var callback: AsyncCallback[(RecordMetadata, Exception)] = null
-
-    var count = 0L
-
     val graphStage = new GraphStageLogic(shape) {
-      def gotAck(info: (RecordMetadata, Exception)) = {
-        count = count - 1
+      val count = new AtomicLong(0)
 
-        log.debug("gotAck {} {}", info, count)
-        val (_, exception) = info
+      var callback: AsyncCallback[Exception] = null
 
-        if (exception != null) {
-          promise.tryFailure(exception)
-
-          if (!isClosed(in))
-            failStage(exception)
-        } else {
-          if (count == 0 && isClosed(in))
-            promise.trySuccess(Done)
-        }
-      }
+      def countIsZero() = count.compareAndSet(0, 0)
 
       val cb = new Callback {
         def onCompletion(recordMetadata: RecordMetadata, exception: Exception) {
-          log.debug("onCompletion {}", (recordMetadata, exception))
-          callback.invoke((recordMetadata, exception))
+          log.debug("onCompletion {}", Array(recordMetadata, exception):_*)
+
+          count.decrementAndGet
+
+          if (exception != null) {
+            promise.tryFailure(exception)
+            callback.invoke(exception)
+          } else if (countIsZero() && isClosed(in)) // TODO: check sync
+            promise.trySuccess(Done)
         }
       }
 
       override def preStart = {
         log.debug("preStart")
-        callback = getAsyncCallback(gotAck)
+
+        callback = getAsyncCallback(x => { failStage(x)})
+
+        // the show must go on...
         pull(in)
       }
 
@@ -67,36 +64,31 @@ class ProducerSink[K, V](_producer: => Producer[K, V])
             log.debug("onPush")
 
             val record = grab(in)
-
-            log.debug("onPush {} {}", record, count)
+            log.debug("onPush {} {}", Array(record, count):_*)
 
             try {
               producer.send(record.makeProducerRecord, cb)
-
-              count = count + 1
-
+              count.incrementAndGet
               pull(in)
             } catch {
               case e: Throwable =>
-                log.warn("got exception {}", e)
+                log.warn("onPush got exception on send", e)
+                promise.tryFailure(e)
                 failStage(e)
             }
           }
 
           override def onUpstreamFinish = {
-            log.debug("onUpstreamFinish {} {}", promise, count)
-            if (count == 0)
+            log.debug("onUpstreamFinish {} {}", Array(promise, count):_*)
+            if (countIsZero())
               promise.trySuccess(Done)
 
             super.onUpstreamFinish
           }
 
           override def onUpstreamFailure(ex: Throwable) = {
-            log.debug("onUpstreamFailure {}", ex)
-            if (count == 0)
-              promise.tryFailure(ex)
-
-            log.debug("onUpstreamFailure promise {}", promise)
+            log.debug("onUpstreamFailure", ex)
+            promise.tryFailure(ex)
 
             super.onUpstreamFailure(ex)
           }

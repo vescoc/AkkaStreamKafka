@@ -6,7 +6,8 @@ scalaVersion := "2.12.6"
 scalacOptions ++= Seq(
   "-feature",
   "-deprecation",
-  "-unchecked"
+  "-unchecked",
+  "-Xlint"
 )
 
 lazy val akkaVersion = "2.5.12"

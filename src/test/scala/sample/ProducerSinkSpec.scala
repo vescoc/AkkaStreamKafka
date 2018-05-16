@@ -3,8 +3,14 @@ package sample
 import scala.concurrent.duration._
 
 import org.apache.kafka.common.serialization.StringSerializer
-import org.apache.kafka.clients.producer.MockProducer
+import org.apache.kafka.clients.producer.{
+  MockProducer,
+  RecordMetadata,
+  ProducerRecord,
+  Callback
+}
 
+import akka.Done
 import akka.stream.scaladsl.Keep
 import akka.stream.testkit.scaladsl.TestSource
 
@@ -15,9 +21,20 @@ class ProducerSinkSpec extends AkkaStreamSpec {
 
   override implicit val patienceConfig = PatienceConfig(scaled(Span(10, Seconds)))
 
+  def newProducer(
+    autoComplete: Boolean = true,
+    sendHook: (MockProducer[String, String], java.util.concurrent.Future[RecordMetadata]) => java.util.concurrent.Future[RecordMetadata] = (_, r) => r
+  ) =
+    new MockProducer[String, String](autoComplete, new StringSerializer(), new StringSerializer()) {
+      override def send(producerRecord: ProducerRecord[String, String], callback: Callback) = {
+        val r = super.send(producerRecord, callback)
+        sendHook(this, r)
+      }
+    }
+
   "producer sink" must {
     "handle records one a time" in within(10.seconds) {
-      withResource(new MockProducer[String, String](true, new StringSerializer(), new StringSerializer())) { producer =>
+      withResource(newProducer()) { producer =>
         val sinkUnderTest = ProducerSink(producer)
 
         val (source, future) = TestSource.probe[ProducerSink.Record[String, String]]
@@ -27,12 +44,12 @@ class ProducerSinkSpec extends AkkaStreamSpec {
         source.sendNext(ProducerSink.Record(topic, "ciccioKey", "ciccioValue"))
         source.sendComplete()
 
-        future.futureValue
+        future.futureValue must be(Done)
       }
     }
 
     "handle records in transaction" in within(10.seconds) {
-      withResource(new MockProducer[String, String](true, new StringSerializer(), new StringSerializer())) { producer =>
+      withResource(newProducer()) { producer =>
         producer.initTransactions
 
         producer.beginTransaction
@@ -49,12 +66,12 @@ class ProducerSinkSpec extends AkkaStreamSpec {
 
         producer.commitTransaction
 
-        future.futureValue
+        future.futureValue must be(Done)
       }
     }
 
-    "handle error" in within(10.seconds) {
-      withResource(new MockProducer[String, String](true, new StringSerializer(), new StringSerializer())) { producer =>
+    "handle error in upstream" in within(10.seconds) {
+      withResource(newProducer()) { producer =>
         val sinkUnderTest = ProducerSink(producer)
 
         val (source, future) = TestSource.probe[ProducerSink.Record[String, String]]
@@ -66,6 +83,80 @@ class ProducerSinkSpec extends AkkaStreamSpec {
         source.sendError(ex)
 
         future.failed.futureValue must be(ex)
+      }
+    }
+
+    "handle error in kafka callback" in within(10.seconds) {
+      val ex = new RuntimeException("fail!")
+      withResource(newProducer(false,
+        (p, r) => {
+          val v = p.errorNext(ex)
+          log.debug("sendHook {}", v)
+          r
+        })) { producer =>
+        val sinkUnderTest = ProducerSink(producer)
+
+        val (source, future) = TestSource.probe[ProducerSink.Record[String, String]]
+          .toMat(sinkUnderTest)(Keep.both)
+          .run
+
+        source.sendNext(ProducerSink.Record(topic, "failKey", "failValue"))
+        source.sendComplete()
+
+        future.failed.futureValue must be(ex)
+      }
+    }
+
+    "handle error on kafka send" in within(10.seconds) {
+      val ex = new RuntimeException("fail!")
+      withResource(newProducer(false,
+        (p, r) => {
+          throw ex
+        })) { producer =>
+        val sinkUnderTest = ProducerSink(producer)
+
+        val (source, future) = TestSource.probe[ProducerSink.Record[String, String]]
+          .toMat(sinkUnderTest)(Keep.both)
+          .run
+
+        source.sendNext(ProducerSink.Record(topic, "failKey", "failValue"))
+        source.sendComplete()
+
+        future.failed.futureValue must be(ex)
+      }
+    }
+
+    "handle later ack" in within(10.seconds) {
+      withResource(newProducer(false)) { producer =>
+        val sinkUnderTest = ProducerSink(producer)
+
+        val (source, future) = TestSource.probe[ProducerSink.Record[String, String]]
+          .toMat(sinkUnderTest)(Keep.both)
+          .run
+
+        source.sendNext(ProducerSink.Record(topic, "okKey", "okValue"))
+        source.sendComplete()
+
+        Thread.sleep(1000) // bad bad bad!!!
+        val v = producer.completeNext()
+        log.debug("handle later ack {}", v)
+
+        producer.flush()
+
+        future.futureValue must be(Done)
+      }
+    }
+
+    "handle empty streams" in within(10.seconds) {
+      withResource(newProducer()) { producer =>
+        val sinkUnderTest = ProducerSink(producer)
+
+        val (source, future) = TestSource.probe[ProducerSink.Record[String, String]]
+          .toMat(sinkUnderTest)(Keep.both)
+          .run
+        source.sendComplete()
+
+        future.futureValue must be(Done)
       }
     }
   }

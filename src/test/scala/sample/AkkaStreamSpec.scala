@@ -18,6 +18,8 @@ abstract class AkkaStreamSpec
 {
   implicit val materializer = ActorMaterializer()
 
+  val log = LoggerFactory.getLogger(getClass)
+
   def withResource[T <: AutoCloseable, V](r: => T)(f: T => V): V = {
     import scala.util.control.NonFatal
 
