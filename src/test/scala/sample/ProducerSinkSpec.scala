@@ -2,35 +2,16 @@ package sample
 
 import scala.concurrent.duration._
 
-import org.apache.kafka.common.serialization.StringSerializer
-import org.apache.kafka.clients.producer.{
-  MockProducer,
-  RecordMetadata,
-  ProducerRecord,
-  Callback
-}
-
 import akka.Done
 import akka.stream.scaladsl.Keep
 import akka.stream.testkit.scaladsl.TestSource
 
 import org.scalatest.time.{Seconds, Span}
 
-class ProducerSinkSpec extends AkkaStreamSpec {
+class ProducerSinkSpec extends AkkaStreamSpec with ProducerSpec {
   val topic = "test"
 
   override implicit val patienceConfig = PatienceConfig(scaled(Span(10, Seconds)))
-
-  def newProducer(
-    autoComplete: Boolean = true,
-    sendHook: (MockProducer[String, String], java.util.concurrent.Future[RecordMetadata]) => java.util.concurrent.Future[RecordMetadata] = (_, r) => r
-  ) =
-    new MockProducer[String, String](autoComplete, new StringSerializer(), new StringSerializer()) {
-      override def send(producerRecord: ProducerRecord[String, String], callback: Callback) = {
-        val r = super.send(producerRecord, callback)
-        sendHook(this, r)
-      }
-    }
 
   "producer sink" must {
     "handle records one a time" in within(10.seconds) {

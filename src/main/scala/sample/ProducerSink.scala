@@ -2,16 +2,33 @@ package sample
 
 import java.util.concurrent.atomic.AtomicLong
 
-import scala.concurrent.{Future, Promise}
+import scala.concurrent.{
+  Future,
+  Promise
+}
 
 import org.slf4j.LoggerFactory
 
 import akka.Done
-import akka.stream.{Attributes, Inlet, SinkShape}
+import akka.stream.{
+  Attributes,
+  Inlet,
+  SinkShape
+}
 import akka.stream.scaladsl.Sink
-import akka.stream.stage.{AsyncCallback, GraphStageLogic, GraphStageWithMaterializedValue, InHandler}
+import akka.stream.stage.{
+  AsyncCallback,
+  GraphStageLogic,
+  GraphStageWithMaterializedValue,
+  InHandler
+}
 
-import org.apache.kafka.clients.producer.{Callback, Producer, ProducerRecord, RecordMetadata}
+import org.apache.kafka.clients.producer.{
+  Callback,
+  Producer,
+  ProducerRecord,
+  RecordMetadata
+}
 
 import ProducerSink._
 
@@ -48,7 +65,7 @@ class ProducerSink[K, V](_producer: => Producer[K, V])
         }
       }
 
-      override def preStart = {
+      override def preStart() {
         log.debug("preStart")
 
         callback = getAsyncCallback(x => { failStage(x) })
@@ -60,14 +77,14 @@ class ProducerSink[K, V](_producer: => Producer[K, V])
       setHandler(
         in,
         new InHandler {
-          def onPush = {
+          def onPush() {
             log.debug("onPush")
 
             val record = grab(in)
             log.debug("onPush {} {}", Array(record, count): _*)
 
             try {
-              producer.send(record.makeProducerRecord, cb)
+              producer.send(record.makeProducerRecord(), cb)
               count.incrementAndGet
               pull(in)
             } catch {
@@ -78,7 +95,7 @@ class ProducerSink[K, V](_producer: => Producer[K, V])
             }
           }
 
-          override def onUpstreamFinish = {
+          override def onUpstreamFinish() {
             log.debug("onUpstreamFinish {} {}", Array(promise, count): _*)
             if (countIsZero())
               promise.trySuccess(Done)
@@ -86,7 +103,7 @@ class ProducerSink[K, V](_producer: => Producer[K, V])
             super.onUpstreamFinish
           }
 
-          override def onUpstreamFailure(ex: Throwable) = {
+          override def onUpstreamFailure(ex: Throwable) {
             log.debug("onUpstreamFailure", ex)
             promise.tryFailure(ex)
 
@@ -103,7 +120,16 @@ object ProducerSink {
   def apply[K, V](producer: => Producer[K, V]): Sink[Record[K, V], Future[Done]] =
     Sink.fromGraph(new ProducerSink(producer))
 
-  case class Record[K, V](topic: String, key: K, value: V) {
-    private[ProducerSink] def makeProducerRecord = new ProducerRecord(topic, key, value)
+  trait Record[K, V] {
+    val topic: String
+    val key: K
+    val value: V
+
+    private[sample] def makeProducerRecord() = new ProducerRecord(topic, key, value)
+  }
+
+  case class DefaultRecord[K, V](topic: String, key: K, value: V) extends Record[K, V]
+  object Record {
+    def apply[K, V](topic: String, key: K, value: V) = new DefaultRecord(topic, key, value)
   }
 }
