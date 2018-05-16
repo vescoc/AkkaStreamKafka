@@ -36,7 +36,7 @@ class ProducerSink[K, V](_producer: => Producer[K, V])
 
       val cb = new Callback {
         def onCompletion(recordMetadata: RecordMetadata, exception: Exception) {
-          log.debug("onCompletion {}", Array(recordMetadata, exception):_*)
+          log.debug("onCompletion {}", Array(recordMetadata, exception): _*)
 
           count.decrementAndGet
 
@@ -51,7 +51,7 @@ class ProducerSink[K, V](_producer: => Producer[K, V])
       override def preStart = {
         log.debug("preStart")
 
-        callback = getAsyncCallback(x => { failStage(x)})
+        callback = getAsyncCallback(x => { failStage(x) })
 
         // the show must go on...
         pull(in)
@@ -64,7 +64,7 @@ class ProducerSink[K, V](_producer: => Producer[K, V])
             log.debug("onPush")
 
             val record = grab(in)
-            log.debug("onPush {} {}", Array(record, count):_*)
+            log.debug("onPush {} {}", Array(record, count): _*)
 
             try {
               producer.send(record.makeProducerRecord, cb)
@@ -79,7 +79,7 @@ class ProducerSink[K, V](_producer: => Producer[K, V])
           }
 
           override def onUpstreamFinish = {
-            log.debug("onUpstreamFinish {} {}", Array(promise, count):_*)
+            log.debug("onUpstreamFinish {} {}", Array(promise, count): _*)
             if (countIsZero())
               promise.trySuccess(Done)
 
