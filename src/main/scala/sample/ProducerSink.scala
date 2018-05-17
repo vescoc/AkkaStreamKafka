@@ -2,33 +2,16 @@ package sample
 
 import java.util.concurrent.atomic.AtomicLong
 
-import scala.concurrent.{
-  Future,
-  Promise
-}
+import scala.concurrent.{Future, Promise}
 
 import org.slf4j.LoggerFactory
 
 import akka.Done
-import akka.stream.{
-  Attributes,
-  Inlet,
-  SinkShape
-}
+import akka.stream.{Attributes, Inlet, SinkShape}
 import akka.stream.scaladsl.Sink
-import akka.stream.stage.{
-  AsyncCallback,
-  GraphStageLogic,
-  GraphStageWithMaterializedValue,
-  InHandler
-}
+import akka.stream.stage.{AsyncCallback, GraphStageLogic, GraphStageWithMaterializedValue, InHandler}
 
-import org.apache.kafka.clients.producer.{
-  Callback,
-  Producer,
-  ProducerRecord,
-  RecordMetadata
-}
+import org.apache.kafka.clients.producer.{Callback, Producer, ProducerRecord, RecordMetadata}
 
 import ProducerSink._
 

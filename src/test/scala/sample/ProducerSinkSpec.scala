@@ -88,7 +88,7 @@ class ProducerSinkSpec extends AkkaStreamSpec with ProducerSpec {
       }
     }
 
-    "handle error on kafka send" in within(10.seconds) {
+    "handle exception on kafka send" in within(10.seconds) {
       val ex = new RuntimeException("fail!")
       withResource(newProducer(false,
         (p, r) => {

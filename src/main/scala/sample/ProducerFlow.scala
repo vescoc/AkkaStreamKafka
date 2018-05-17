@@ -4,25 +4,11 @@ import scala.concurrent.Promise
 
 import org.slf4j.LoggerFactory
 
-import org.apache.kafka.clients.producer.{
-  Producer,
-  Callback,
-  RecordMetadata
-}
+import org.apache.kafka.clients.producer.{Callback, Producer, RecordMetadata}
 
 import akka.NotUsed
-import akka.stream.{
-  Attributes,
-  Inlet,
-  Outlet,
-  FlowShape
-}
-import akka.stream.stage.{
-  GraphStage,
-  GraphStageLogic,
-  InHandler,
-  OutHandler
-}
+import akka.stream.{Attributes, FlowShape, Inlet, Outlet}
+import akka.stream.stage.{GraphStage, GraphStageLogic, InHandler, OutHandler}
 import akka.stream.scaladsl.Flow
 
 import ProducerFlow._
@@ -106,9 +92,5 @@ object ProducerFlow {
         else
           callbackDone.success(recordMetadata)
     }
-  }
-  object OutputRecord {
-    def apply[K, V](topic: String, key: K, value: V): OutputRecord[K, V] =
-      DefaultOutputRecord(topic, key, value)
   }
 }

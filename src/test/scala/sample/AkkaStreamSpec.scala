@@ -20,6 +20,14 @@ abstract class AkkaStreamSpec
 
   val log = LoggerFactory.getLogger(getClass)
 
+  override def withFixture(test: NoArgTest) = {
+    log.info("start <{}>", test.name)
+    try
+      super.withFixture(test)
+    finally
+      log.info("end <{}>", test.name)
+  }
+
   def withResource[T <: AutoCloseable, V](r: => T)(f: T => V): V = {
     import scala.util.control.NonFatal
 
