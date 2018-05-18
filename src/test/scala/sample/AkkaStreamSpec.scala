@@ -1,5 +1,10 @@
 package sample
 
+import scala.util.{
+  Try,
+  Failure
+}
+
 import akka.actor.ActorSystem
 import akka.stream.ActorMaterializer
 import akka.testkit.TestKit
@@ -28,33 +33,18 @@ abstract class AkkaStreamSpec
       log.info("end <{}>", test.name)
   }
 
-  def withResource[T <: AutoCloseable, V](r: => T)(f: T => V): V = {
-    import scala.util.control.NonFatal
+  def withResource[T <: AutoCloseable, V](r: => T)(f: T => V): Try[V] = {
+    val resource = Try { r }
+    val result = resource.map(res => f(res))
+    val close = resource.flatMap(res => Try { res.close() })
 
-    def close(e: Throwable, resource: T) {
-      if (e != null) {
-        try {
-          resource.close
-        } catch {
-          case NonFatal(suppressed) =>
-            e.addSuppressed(suppressed)
-        } 
-      } else {
-        resource.close
-      }
-    }
-
-    var exception: Throwable = null
-
-    val resource = r
-    try {
-      f(resource)
-    } catch {
-      case NonFatal(e) =>
-        exception = e
-        throw e
-    } finally {
-      close(exception, resource)
+    (resource, result, close) match {
+      case (Failure(t), _, _) => Failure(t)
+      case (_, f @ Failure(tr), Failure(tc)) =>
+        tr.addSuppressed(tc)
+        f
+      case (_, _, Failure(tc)) => Failure(tc)
+      case (_, s, _) => s
     }
   }
 }
